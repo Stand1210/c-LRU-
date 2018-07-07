@@ -104,7 +104,6 @@ int LRUCacheDestory(void *lruCache)
 /* 从双向链表中删除指定节点 */
 static void removeFromList(LRUCacheS *cache, cacheEntryS *entry)
 {
-    P(&cache->cache_lock);
     /*链表为空*/
     if (cache->lruListSize==0) {
         return;
@@ -112,22 +111,30 @@ static void removeFromList(LRUCacheS *cache, cacheEntryS *entry)
     
     if (entry==cache->lruListHead && entry==cache->lruListTail) {
         /* 链表中仅剩当前一个节点 */
-        
+        P(&cache->cache_lock);        
         cache->lruListHead = cache->lruListTail = NULL;
+        V(&cache->cache_lock);
     } else if (entry == cache->lruListHead) {
         /*欲删除节点位于表头*/
+        P(&cache->cache_lock);
         cache->lruListHead = entry->lruListNext;
         cache->lruListHead->lruListPrev = NULL;
+        V(&cache->cache_lock);
     } else if (entry == cache->lruListTail) {
         /*欲删除节点位于表尾*/
+        P(&cache->cache_lock);
         cache->lruListTail = entry->lruListPrev;
         cache->lruListTail->lruListNext = NULL;
+        V(&cache->cache_lock);
     } else {
         /*其他非表头表尾情况，直接摘抄节点*/
+        P(&cache->cache_lock);
         entry->lruListPrev->lruListNext = entry->lruListNext;
         entry->lruListNext->lruListPrev = entry->lruListPrev;
+        V(&cache->cache_lock);
     }
     /*删除成功， 链表节点数减1*/
+    P(&cache->cache_lock);
     cache->lruListSize--;
     V(&cache->cache_lock);
 }
@@ -135,27 +142,33 @@ static void removeFromList(LRUCacheS *cache, cacheEntryS *entry)
 /*将节点插入到链表表头*/
 static cacheEntryS* insertToListHead(LRUCacheS *cache, cacheEntryS *entry)
 {
-    P(&cache->cache_lock);
     cacheEntryS *removedEntry = NULL;
+    P(&cache->cache_lock);        
+    ++cache->lruListSize;
+    V(&cache->cache_lock);
     
-    if (++cache->lruListSize > cache->cacheCapacity) {
+    if (cache->lruListSize > cache->cacheCapacity) {
         /*如果缓存满了， 即链表当前节点数已等于缓存容量， 
         那么需要先删除链表表尾节点， 即淘汰最久没有被访问到的缓存数据单元*/
         removedEntry = cache->lruListTail;
+        
         removeFromList(cache, cache->lruListTail);
     }
     
     if (cache->lruListHead == NULL && cache->lruListTail == NULL) {
         /*如果当前链表为空链表*/
+        P(&cache->cache_lock);
         cache->lruListHead = cache->lruListTail = entry;
+        V(&cache->cache_lock);
     } else {
+        P(&cache->cache_lock);
         /*当前链表非空， 插入表头*/
         entry->lruListNext = cache->lruListHead;
         entry->lruListPrev = NULL;
         cache->lruListHead->lruListPrev = entry;
         cache->lruListHead = entry;
+        V(&cache->cache_lock);
     }
-    V(&cache->cache_lock);
     
     return removedEntry;
 }
@@ -227,9 +240,10 @@ static cacheEntryS *getValueFromHashMap(LRUCacheS *cache, char *key)
 /*向哈希表插入缓存单元*/
 static void insertentryToHashMap(LRUCacheS *cache, cacheEntryS *entry)
 {
-    P(&cache->cache_lock);
+
     /*1.使用哈希函数定位数据存放在哪个槽*/
     cacheEntryS *n = cache->hashMap[hashKey(cache, entry->key)];
+    P(&cache->cache_lock);
     if (n != NULL) {
         /*2.如果槽内已有其他数据项， 将槽内的数据项与当前欲加入数据项链成链表， 
         当前欲加入数据项为表头*/
@@ -248,25 +262,29 @@ static void removeEntryFromHashMap(LRUCacheS *cache, cacheEntryS *entry)
     if (NULL==entry || NULL==cache || NULL==cache->hashMap) {
         return ;
     }
-    P(&cache->cache_lock);
     /*1.使用哈希函数定位数据位于哪个槽*/
     cacheEntryS *n = cache->hashMap[hashKey(cache, entry->key)];
     /*2.遍历槽内链表， 找到欲删除的节点， 将节点从哈希表删除*/
     while (n) {
         if (n->key == entry->key) { /*找到欲删除节点， 将节点从哈希表摘抄*/
             if (n->hashListPrev) {
-                n->hashListPrev->hashListNext = n->hashListNext;
+            P(&cache->cache_lock);
+            n->hashListPrev->hashListNext = n->hashListNext;
+            V(&cache->cache_lock);
             } else {
+                P(&cache->cache_lock);
                 cache->hashMap[hashKey(cache, entry->key)] = n->hashListNext;
+                V(&cache->cache_lock);
             }
             if (n->hashListNext) {
+                P(&cache->cache_lock);
                 n->hashListNext->hashListPrev = n->hashListPrev;
+                V(&cache->cache_lock);
             }
             return ;
         }
         n = n->hashListNext;
     }
-    V(&cache->cache_lock);
 }
 
 /*******************************************************************************
