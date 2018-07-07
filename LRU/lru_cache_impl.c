@@ -1,16 +1,8 @@
-//
-//  LRUCacheImpl.c
-//  LRU
-//
-//  Created by 宋珂琦 on 2017/4/13.
-//  Copyright © 2017年 宋珂琦. All rights reserved.
-//
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "LRUCache.h"
-#include "LRUCacheImpl.h"
+#include "lru_cache.h"
+#include "lru_cache_impl.h"
 
 static void freeList(LRUCacheS *cache);
 
@@ -18,16 +10,17 @@ static void freeList(LRUCacheS *cache);
  * LRU缓存及缓存单元相关接口及实现
 ******************************/
 /* 创建一个缓存单元 */
-static cacheEntryS* newCacheEntry(char key, char data)
+static cacheEntryS* newCacheEntry(char *key, char *data)
 {
+    
     cacheEntryS* entry = NULL;
     if (NULL == (entry=malloc(sizeof(*entry)))) {
         perror("malloc");
         return NULL;
     }
     memset(entry, 0, sizeof(*entry));
-    entry->key = key;
-    entry->data = data;
+    strncpy(entry->key,key,KEY_SIZE);
+    strncpy(entry->data,data,VALUE_SIZE);
     return entry;
 }
 
@@ -48,13 +41,13 @@ int LRUCacheCreate(int capacity, void **lruCache)
     }
     memset(cache, 0, sizeof(*cache));
     cache->cacheCapacity = capacity;
-    cache->hashMap = malloc(sizeof(cacheEntryS)*capacity);
+    cache->hashMap = malloc(sizeof(cacheEntryS*)*capacity);
     if (NULL == cache->hashMap) {
         free(cache);
         perror("molloc");
         return -1;
     }
-    memset(cache->hashMap, 0, sizeof(cacheEntryS)*capacity);
+    memset(cache->hashMap, 0, sizeof(cacheEntryS*)*capacity);
     *lruCache = cache;
     return 0;
 }
@@ -103,6 +96,7 @@ static void removeFromList(LRUCacheS *cache, cacheEntryS *entry)
     }
     /*删除成功， 链表节点数减1*/
     cache->lruListSize--;
+    
 }
 
 /*将节点插入到链表表头*/
@@ -111,7 +105,8 @@ static cacheEntryS* insertToListHead(LRUCacheS *cache, cacheEntryS *entry)
     cacheEntryS *removedEntry = NULL;
     
     if (++cache->lruListSize > cache->cacheCapacity) {
-        /*如果缓存满了， 即链表当前节点数已等于缓存容量， 那么需要先删除链表表尾节点， 即淘汰最久没有被访问到的缓存数据单元*/
+        /*如果缓存满了， 即链表当前节点数已等于缓存容量， 
+        那么需要先删除链表表尾节点， 即淘汰最久没有被访问到的缓存数据单元*/
         removedEntry = cache->lruListTail;
         removeFromList(cache, cache->lruListTail);
     }
@@ -160,21 +155,32 @@ static void updateLRUList(LRUCacheS *cache, cacheEntryS *entry)
 /*********************************************************************************
 * 哈希表相关接口实现
 **********************************************************************************/
+
 /*哈希函数*/
-static int hashKey(LRUCacheS *cache, char key)
-{
-    return (int)key%cache->cacheCapacity;
-}
+static unsigned int hashKey(LRUCacheS *cache,char* key)  
+{  
+    unsigned int len=strlen(key);
+    unsigned int b    = 378551;  
+    unsigned int a    = 63689;  
+    unsigned int hash = 0;  
+    unsigned int i    = 0;  
+    for(i = 0; i < len; key++, i++)  
+    {  
+        hash = hash * a + (unsigned int)(*key);  
+        a    = a * b;  
+    }  
+    return hash%(cache->cacheCapacity);  
+}  
 
 /*从哈希表获取缓存单元*/
-static cacheEntryS *getValueFromHashMap(LRUCacheS *cache, int key)
+static cacheEntryS *getValueFromHashMap(LRUCacheS *cache, char *key)
 {
     /*1.使用哈希函数定位数据存放于哪个槽*/
     cacheEntryS *entry = cache->hashMap[hashKey(cache, key)];
     
     /*2.遍历查询槽内链表， 找到准确的数据项*/
     while (entry) {
-        if (entry->key == key) {
+        if (!strncmp(entry->key,key,KEY_SIZE)) {
             break;
         }
         entry = entry->hashListNext;
@@ -189,7 +195,8 @@ static void insertentryToHashMap(LRUCacheS *cache, cacheEntryS *entry)
     /*1.使用哈希函数定位数据存放在哪个槽*/
     cacheEntryS *n = cache->hashMap[hashKey(cache, entry->key)];
     if (n != NULL) {
-        /*2.如果槽内已有其他数据项， 将槽内的数据项与当前欲加入数据项链成链表， 当前欲加入数据项为表头*/
+        /*2.如果槽内已有其他数据项， 将槽内的数据项与当前欲加入数据项链成链表， 
+        当前欲加入数据项为表头*/
         entry->hashListNext = n;
         n->hashListPrev = entry;
     }
@@ -229,14 +236,15 @@ static void removeEntryFromHashMap(LRUCacheS *cache, cacheEntryS *entry)
 * 缓存存取接口
 ********************************************************************************/
 /* 将数据放入LRU缓存中*/
-int LRUCacheSet(void *lruCache, char key, char data)
+int LRUCacheSet(void *lruCache, char *key, char *data)
 {
+
     LRUCacheS *cache = (LRUCacheS *)lruCache;
     /*从哈希表中查找数据是否已经存在缓存中*/
     cacheEntryS *entry = getValueFromHashMap(cache, key);
     if (entry != NULL) {    /*数据已经在缓存中*/
         /*更新数据， 将该数据更新到链表表头*/
-        entry->data = data;
+        strncpy(entry->data, data,VALUE_SIZE);
         updateLRUList(cache, entry);
     } else {
         /*数据没在缓存中*/
@@ -246,7 +254,8 @@ int LRUCacheSet(void *lruCache, char key, char data)
         /*将新建缓存单元插入链表表头*/
         cacheEntryS *removedEntry = insertToListHead(cache, entry);
         if (NULL != removedEntry) {
-            /*将新建缓存单元插入链表表头过程中， 发生缓存满了的情况， 需要淘汰最久没有被访问到的缓存数据单元*/
+            /*将新建缓存单元插入链表表头过程中， 发生缓存满了的情况， 
+            需要淘汰最久没有被访问到的缓存数据单元*/
             removeEntryFromHashMap(cache, removedEntry);
             freeCacheEntry(removedEntry);
         }
@@ -257,7 +266,7 @@ int LRUCacheSet(void *lruCache, char key, char data)
 }
 
 /*从缓存中获取数据*/
-char LRUCacheGet(void *lruCache, char key)
+char *LRUCacheGet(void *lruCache, char *key)
 {
     LRUCacheS *cache = (LRUCacheS *)lruCache;
     /*从哈希表查找数据是否已经在缓存中*/
@@ -269,7 +278,7 @@ char LRUCacheGet(void *lruCache, char key)
         return entry->data;
     } else {
         /*缓存中不存在相关数据*/
-        return '\0';
+        return NULL;
     }
 }
 
@@ -287,7 +296,7 @@ void LRUCachePrint(void *lruCache)
     fprintf(stdout, "cache (key data):\n");
     cacheEntryS* entry = cache->lruListHead;
     while (entry) {
-        fprintf(stdout, "(%c, %c)", entry->key, entry->data);
+        fprintf(stdout, "(%s, %s)", entry->key, entry->data);
         entry = entry->lruListNext;
     }
     fprintf(stdout, "\n<<<<<<<<<<<<<<<\n");
