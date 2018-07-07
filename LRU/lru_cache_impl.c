@@ -1,10 +1,37 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <semaphore.h>
 #include "lru_cache.h"
 #include "lru_cache_impl.h"
 
+/*******************************
+ * Wrappers for Posix semaphores
+ *******************************/
+void unix_error(char *msg) /* Unix-style error */
+{
+    fprintf(stderr, "%s: %s\n", msg, strerror(errno));
+    exit(0);
+}
 
+void Sem_init(sem_t *sem, int pshared, unsigned int value) 
+{
+    if (sem_init(sem, pshared, value) < 0)
+	unix_error("Sem_init error");
+}
+
+void P(sem_t *sem) 
+{
+    if (sem_wait(sem) < 0)
+	unix_error("P error");
+}
+
+void V(sem_t *sem) 
+{
+    if (sem_post(sem) < 0)
+	unix_error("V error");
+}
 
 static void freeList(LRUCacheS *cache);
 
@@ -23,6 +50,7 @@ static cacheEntryS* newCacheEntry(char *key, char *data)
     memset(entry, 0, sizeof(*entry));
     strncpy(entry->key,key,KEY_SIZE);
     strncpy(entry->data,data,VALUE_SIZE);
+    Sem_init(&(entry->entry_lock),0,1); //entity lock initially=1
     return entry;
 }
 
@@ -43,6 +71,7 @@ int LRUCacheCreate(int capacity, void **lruCache)
     }
     memset(cache, 0, sizeof(*cache));
     cache->cacheCapacity = capacity;
+    Sem_init(&(cache->cache_lock),0,1); //cache lock initially=1
     cache->hashMap = malloc(sizeof(cacheEntryS*)*capacity);
     if (NULL == cache->hashMap) {
         free(cache);
@@ -75,6 +104,7 @@ int LRUCacheDestory(void *lruCache)
 /* 从双向链表中删除指定节点 */
 static void removeFromList(LRUCacheS *cache, cacheEntryS *entry)
 {
+    P(&cache->cache_lock);
     /*链表为空*/
     if (cache->lruListSize==0) {
         return;
@@ -82,6 +112,7 @@ static void removeFromList(LRUCacheS *cache, cacheEntryS *entry)
     
     if (entry==cache->lruListHead && entry==cache->lruListTail) {
         /* 链表中仅剩当前一个节点 */
+        
         cache->lruListHead = cache->lruListTail = NULL;
     } else if (entry == cache->lruListHead) {
         /*欲删除节点位于表头*/
@@ -98,12 +129,13 @@ static void removeFromList(LRUCacheS *cache, cacheEntryS *entry)
     }
     /*删除成功， 链表节点数减1*/
     cache->lruListSize--;
-    
+    V(&cache->cache_lock);
 }
 
 /*将节点插入到链表表头*/
 static cacheEntryS* insertToListHead(LRUCacheS *cache, cacheEntryS *entry)
 {
+    P(&cache->cache_lock);
     cacheEntryS *removedEntry = NULL;
     
     if (++cache->lruListSize > cache->cacheCapacity) {
@@ -123,6 +155,7 @@ static cacheEntryS* insertToListHead(LRUCacheS *cache, cacheEntryS *entry)
         cache->lruListHead->lruListPrev = entry;
         cache->lruListHead = entry;
     }
+    V(&cache->cache_lock);
     
     return removedEntry;
 }
@@ -194,6 +227,7 @@ static cacheEntryS *getValueFromHashMap(LRUCacheS *cache, char *key)
 /*向哈希表插入缓存单元*/
 static void insertentryToHashMap(LRUCacheS *cache, cacheEntryS *entry)
 {
+    P(&cache->cache_lock);
     /*1.使用哈希函数定位数据存放在哪个槽*/
     cacheEntryS *n = cache->hashMap[hashKey(cache, entry->key)];
     if (n != NULL) {
@@ -204,6 +238,7 @@ static void insertentryToHashMap(LRUCacheS *cache, cacheEntryS *entry)
     }
     /*3.将数据项加入数据槽内*/
     cache->hashMap[hashKey(cache, entry->key)] = entry;
+    V(&cache->cache_lock);
 }
 
 /*从哈希表删除缓存单元*/
@@ -213,7 +248,7 @@ static void removeEntryFromHashMap(LRUCacheS *cache, cacheEntryS *entry)
     if (NULL==entry || NULL==cache || NULL==cache->hashMap) {
         return ;
     }
-    
+    P(&cache->cache_lock);
     /*1.使用哈希函数定位数据位于哪个槽*/
     cacheEntryS *n = cache->hashMap[hashKey(cache, entry->key)];
     /*2.遍历槽内链表， 找到欲删除的节点， 将节点从哈希表删除*/
@@ -231,7 +266,7 @@ static void removeEntryFromHashMap(LRUCacheS *cache, cacheEntryS *entry)
         }
         n = n->hashListNext;
     }
-    
+    V(&cache->cache_lock);
 }
 
 /*******************************************************************************
@@ -246,7 +281,9 @@ int LRUCacheSet(void *lruCache, char *key, char *data)
     cacheEntryS *entry = getValueFromHashMap(cache, key);
     if (entry != NULL) {    /*数据已经在缓存中*/
         /*更新数据， 将该数据更新到链表表头*/
+        P(&entry->entry_lock);
         strncpy(entry->data, data,VALUE_SIZE);
+        V(&entry->entry_lock);
         updateLRUList(cache, entry);
     } else {
         /*数据没在缓存中*/
