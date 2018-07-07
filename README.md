@@ -20,7 +20,7 @@ int main(int argc, char **argv){
     void *LruCache;
 
     //创建缓存器
-    if (0 != LRUCacheCreate(3, &LruCache))
+    if (0 == LRUCacheCreate(3, &LruCache))
         printf("缓存器创建成功，容量为3\n");
 
     //向缓存器中添加数据
@@ -65,6 +65,8 @@ int main(int argc, char **argv){
 ```
 输出:
 ```
+缓存器创建成功，容量为3
+
 >>>>>>>>>>>>>>>
 cache (key data):
 (key5, value5)(key4, value4)(key3, value3)

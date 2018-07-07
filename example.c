@@ -8,7 +8,7 @@ int main(int argc, char **argv){
     void *LruCache;
 
     //创建缓存器
-    if (0 != LRUCacheCreate(3, &LruCache))
+    if (0 == LRUCacheCreate(3, &LruCache))
         printf("缓存器创建成功，容量为3\n");
 
     //向缓存器中添加数据
