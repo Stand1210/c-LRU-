@@ -1,15 +1,3 @@
-## [LRU_Cache](https://github.com/Andrewpqc/LRU-Cache)
-基于双向链表和哈希表实现的LRU进程内缓存包，C语言实现。改编自[https://github.com/Stand1210/c-LRU-](https://github.com/Stand1210/c-LRU-)
-
-### Features
-+ 测试全面
-+ LRU淘汰算法
-+ 双向链表和哈希表的存储模型
-+ 基于键值对，键和值的数据类型为字符串
-+ 对全局存储结构的写操作上锁，并发安全
-
-### Usage
-``` c
 #include <stdio.h>
 #include <string.h>
 
@@ -62,21 +50,3 @@ int main(int argc, char **argv){
     if (0 != LRUCacheDestory(LruCache))
         printf("destory error");
 }
-```
-输出:
-```
-缓存器创建成功，容量为3
-
->>>>>>>>>>>>>>>
-cache (key data):
-(key5, value5)(key4, value4)(key3, value3)
-<<<<<<<<<<<<<<<
-key1 所对应的数据未被缓存
-key4所对应的数据:value4
->>>>>>>>>>>>>>>
-cache (key data):
-(key4, value4)(key5, value5)(key3, value3)
-<<<<<<<<<<<<<<<
-```
-### Last but not Least
-本程序中的键和值在存储时所占用的字节数是写死的，不具有动态性，这是本程序的一个缺陷(怪就该C语言的字符串处理太麻烦了)。在应对键值长度与设定的长度不一致的场景下会出现浪费内存或者数据截断的问题。所以根据具体的场景合理的设定键和值所占用的字节数至关重要。设置方法:修改包中的`lru_cache_impl.h`文件中的`KEY_SIZE`、`VALUE_SIZE`两个宏即可，这两个宏初始对应的值分别是50,100.
